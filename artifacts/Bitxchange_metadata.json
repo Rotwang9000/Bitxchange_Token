@@ -292,6 +292,29 @@
 				"inputs": [
 					{
 						"internalType": "address",
+						"name": "token",
+						"type": "address"
+					},
+					{
+						"internalType": "uint256",
+						"name": "amount",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "minAmountOut",
+						"type": "uint256"
+					}
+				],
+				"name": "swapTokensForETH_UserPaysGas",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
 						"name": "newOwner",
 						"type": "address"
 					}
@@ -416,11 +439,11 @@
 			]
 		},
 		"Bitxchange.sol": {
-			"keccak256": "0x28f52d266c881471cb7d341b364f22c3410afa707d7cb5679cad756b7cbd2407",
+			"keccak256": "0xef01da63fab0c89650c6b91126912a89d43e4b765c741550b2c40289553b1de3",
 			"license": "MIT",
 			"urls": [
-				"bzz-raw://0b3c7894c3062e328b9998e278a9784cbe0946714ad0cf42436cf70bc77c01ab",
-				"dweb:/ipfs/QmQe32kuHh9doXNmo1ZjuKGeLD5ZFXNzk34Uq4uNopawwf"
+				"bzz-raw://3325917733f71f933c5bbea67c35da812cbcbae5ad30e95c322d86f1031f35b9",
+				"dweb:/ipfs/QmRMNcmbUCF79W6Mx8L4JMHdHN5uXrYTynGtbuhEBxteZb"
 			]
 		}
 	},

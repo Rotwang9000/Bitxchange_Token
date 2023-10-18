@@ -1,4 +1,13 @@
 // SPDX-License-Identifier: MIT
+// No-gas required token swapping to ETH.
+// Keeps gas cost and 0.75% fee
+// 90% fee sent to $bitx stakers
+// 0xD150e07f602bf3239BE3DE4341E10BE1678a3f8b
+// Developed by @Rotwang9000 for https://Bitx.cx
+// https://t.me/BitXcx
+// Register for Airdrop: https://t.me/BitxLiveBot
+// Buy & Stake Tokens https://token.bitx.cx
+
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -12,7 +21,7 @@ interface IRewardPot {
 contract Bitxchange is Ownable {
     IUniswapV2Router02 public uniswapRouter;
     IRewardPot public rewardPot;
-    uint256 public feePercentage = 500;  // 0.5% fee, scaled by 10^4
+    uint256 public feePercentage = 750;  // 0.75% fee, scaled by 10^4
 
     event FeeUpdated(uint256 newFee);
     event RewardPotUpdated(address newRewardPot);
@@ -24,7 +33,7 @@ contract Bitxchange is Ownable {
     }
 
     // Owner deposits ETH into the contract
-    function depositETH() external payable onlyOwner {}
+    function depositETH() external payable {}
 
     // Owner can withdraw ETH
     function withdrawETH(uint256 amount) external onlyOwner {
@@ -94,6 +103,45 @@ contract Bitxchange is Ownable {
         uint256 estimatedGasCost = estimatedGasForSwap * tx.gasprice;
         require(estimatedGasCost < minAmountOut, "Estimated gas cost exceeds minAmountOut");
         require(canSwap(token, amount,  tx.gasprice), "Swap Expected to Fail");
+
+
+        address[] memory path = new address[](2);
+        path[0] = token;
+        path[1] = uniswapRouter.WETH();
+
+        // Get the expected output amount based on the input amount and path
+        uint256[] memory amountsOut = uniswapRouter.getAmountsOut(amount, path);
+        uint256 expectedAmountOut = amountsOut[1];
+
+        // Estimate gas cost and check against minAmountOut
+        require(expectedAmountOut >= minAmountOut, "Expected amount less than minimum required");
+
+        // Perform the swap
+        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        IERC20(token).approve(address(uniswapRouter), amount);
+
+        uint256[] memory amounts = uniswapRouter.swapExactTokensForETH(amount, minAmountOut, path, address(this), block.timestamp);
+        uint256 receivedETH = amounts[1];
+        // Calculate the fee-free zone and the excess amount
+        uint256 feeFreeZone = expectedAmountOut > minAmountOut ? expectedAmountOut - minAmountOut : 0;
+        uint256 excessAmount = receivedETH > expectedAmountOut ? receivedETH - expectedAmountOut : 0;
+
+        // Calculate and send the fee
+        uint256 totalFee = ( ((receivedETH - feeFreeZone - excessAmount) * feePercentage) / 10000)  + (excessAmount * 40) / 100;  // 40% of the excess amount
+
+        // Send 90% of the total fee to the reward pot
+        rewardPot.addToRewardPot((totalFee * 90) / 100);
+
+        // The remaining 10% stays in the contract
+
+        // Send the remaining ETH back to the original sender
+        payable(msg.sender).transfer(receivedETH - totalFee);
+
+        emit SwapSuccessful(msg.sender, amount, receivedETH);
+        
+    }
+
+    function swapTokensForETH_UserPaysGas(address token, uint256 amount, uint256 minAmountOut) external {
         // Perform the swap
         IERC20(token).transferFrom(msg.sender, address(this), amount);
         IERC20(token).approve(address(uniswapRouter), amount);
@@ -108,10 +156,11 @@ contract Bitxchange is Ownable {
         // Calculate and send the fee
         uint256 fee = (receivedETH * feePercentage) / 10000;
         uint256 rewardPotFee = (fee * 90) / 100;
-        uint256 contractFee = fee - rewardPotFee;
 
+        // Send 90% of the fee to the reward pot
         rewardPot.addToRewardPot(rewardPotFee);
-        payable(owner()).transfer(contractFee);
+
+        // The remaining 10% stays in the contract
 
         // Send the remaining ETH back to the original sender
         uint256 remainingETH = receivedETH - fee;
@@ -119,4 +168,5 @@ contract Bitxchange is Ownable {
 
         emit SwapSuccessful(msg.sender, amount, receivedETH);
     }
+
 }
