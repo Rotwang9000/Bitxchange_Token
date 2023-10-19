@@ -22,6 +22,7 @@ contract Bitxchange is Ownable {
     IUniswapV2Router02 public uniswapRouter;
     IRewardPot public rewardPot;
     uint256 public feePercentage = 750;  // 0.75% fee, scaled by 10^4
+    uint256 public estimatedGasForSwap = 221428;
 
     event FeeUpdated(uint256 newFee);
     event RewardPotUpdated(address newRewardPot);
@@ -45,11 +46,29 @@ contract Bitxchange is Ownable {
         emit FeeUpdated(_newFee);
     }
 
+    function setEstimatedGasForSwap(uint256 _newEstimatedGasForSwap) external onlyOwner {
+        estimatedGasForSwap = _newEstimatedGasForSwap;
+    }
+
+    function setUniswapRouter(address _newRouter) external onlyOwner {
+        require(_newRouter != address(0), "Invalid address");
+        uniswapRouter = IUniswapV2Router02(_newRouter);
+    }
+
     function setRewardPot(address _newRewardPot) external onlyOwner {
         require(_newRewardPot != address(0), "Invalid address");
         rewardPot = IRewardPot(_newRewardPot);
         emit RewardPotUpdated(_newRewardPot);
     }
+
+    function tryGetAmountsOut(uint amountIn, address[] memory path) internal view returns (bool success, uint256 amountOut) {
+        try uniswapRouter.getAmountsOut(amountIn, path) returns (uint256[] memory amounts) {
+            return (true, amounts[1]);
+        } catch {
+            return (false, 0);
+        }
+    }
+
 
     // Function to check if a swap is possible
     function canSwap(address token, uint256 amountIn, uint256 userGasPrice) public view returns (bool) {
@@ -58,15 +77,14 @@ contract Bitxchange is Ownable {
         path[1] = uniswapRouter.WETH();
 
         // Check if there's enough liquidity for the swap
-        uint256[] memory amountsOut = uniswapRouter.getAmountsOut(amountIn, path);
-        if (amountsOut[1] == 0) {
+        (bool success, uint256 amountOut) = tryGetAmountsOut(amountIn, path);
+        if (!success || amountOut == 0) {
             return false;
         }
 
         // Estimate gas cost and check against the minimum output amount
-        uint256 estimatedGasForSwap = 221428;  // Including 20% buffer
         uint256 estimatedGasCost = estimatedGasForSwap * userGasPrice;
-        if (estimatedGasCost >= amountsOut[1]) {
+        if (estimatedGasCost >= amountOut) {
             return false;
         }
 
@@ -79,15 +97,15 @@ contract Bitxchange is Ownable {
         path[1] = uniswapRouter.WETH();
 
         // Get the expected output amount based on the input amount and path
-        uint256[] memory amountsOut = uniswapRouter.getAmountsOut(amount, path);
-        uint256 expectedAmountOut = amountsOut[1];
+        (bool success, uint256 expectedAmountOut) = tryGetAmountsOut(amount, path);
+        require(success, "No liquidity for this token");
 
         // Apply slippage
         minAmountOut = expectedAmountOut * (10000 - slippage) / 10000;
 
         // Benchmark gas for Uniswap swap: 184,523 (from Ethereum.org)
         // Adding a 20% buffer for other operations and fluctuations: ~221,428
-        uint256 estimatedGasForSwap = 221428;
+        //uint256 estimatedGasForSwap = 221428;
 
         // Calculate estimated gas cost based on user-provided gas price
         estimatedGasCost = estimatedGasForSwap * userGasPrice;
@@ -97,12 +115,11 @@ contract Bitxchange is Ownable {
 
 
 
-    function swapTokensForETH(address token, uint256 amount, uint256 minAmountOut) external onlyOwner {
+    function swapTokensForETH(address token, uint256 amount, uint256 minAmountOut) external {
         // Estimate gas cost and check against minAmountOut
-        uint256 estimatedGasForSwap = 221428;  // Including 20% buffer
         uint256 estimatedGasCost = estimatedGasForSwap * tx.gasprice;
         require(estimatedGasCost < minAmountOut, "Estimated gas cost exceeds minAmountOut");
-        require(canSwap(token, amount,  tx.gasprice), "Swap Expected to Fail");
+        require(canSwap(token, amount,  tx.gasprice), "Swap Expected to Fail or too Gassy");
 
 
         address[] memory path = new address[](2);
