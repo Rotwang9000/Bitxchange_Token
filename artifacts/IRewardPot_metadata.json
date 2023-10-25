@@ -1,6 +1,6 @@
 {
 	"compiler": {
-		"version": "0.8.20+commit.a1b79de6"
+		"version": "0.8.21+commit.d9974bed"
 	},
 	"language": "Solidity",
 	"output": {
@@ -85,11 +85,11 @@
 			]
 		},
 		"Bitxchange.sol": {
-			"keccak256": "0x227d756f68f864d2ce6ad747f0fcd81c83dce4231dae97d75a8d805c00fc0f9a",
+			"keccak256": "0x55fd32be1cdb659f6d677f7b4baa66dc580c27619588023e2baf710777f4d1cd",
 			"license": "MIT",
 			"urls": [
-				"bzz-raw://d449e5c458fe2c1732e709a2b086d07cf4fde2fa4be1e438acdc97e537ecc385",
-				"dweb:/ipfs/QmVCKx8Xvk4DNB2xSEH5ESjVGCusw1xpcBpyQhoELYizZ8"
+				"bzz-raw://0733dbee69903287f919abd10b8f1d5d02cbc0ddd44cb31143278a34bac108f3",
+				"dweb:/ipfs/QmPzU9QbuWvfotRqHRfZ8jqojuju3Y9rscC8jweigFfx2j"
 			]
 		}
 	},

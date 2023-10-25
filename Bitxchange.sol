@@ -22,19 +22,32 @@ contract Bitxchange is Ownable {
     IUniswapV2Router02 public uniswapRouter;
     IRewardPot public rewardPot;
     uint256 public feePercentage = 750;  // 0.75% fee, scaled by 10^4
-    uint256 public estimatedGasForSwap = 221428;
+    uint256 public estimatedGasForSwap = 321428;
 
     event FeeUpdated(uint256 newFee);
     event RewardPotUpdated(address newRewardPot);
-    event SwapSuccessful(address indexed from, uint256 amount, uint256 receivedETH);
+    event SwapSuccessful(address indexed from, uint256 receivedETH);
 
     constructor(address _uniswapRouter, address _rewardPot) Ownable(msg.sender) {
         uniswapRouter = IUniswapV2Router02(_uniswapRouter);
         rewardPot = IRewardPot(_rewardPot);
     }
 
+    // Payable function
+    function receiveFunds() public payable {
+    }
+
+    receive() external payable {}
+
+
+    // Payable fallback function (Solidity 0.6.0 and later)
+    fallback() external payable {
+    }
+
+
     // Owner deposits ETH into the contract
     function depositETH() external payable {}
+
 
     // Owner can withdraw ETH
     function withdrawETH(uint256 amount) external onlyOwner {
@@ -60,6 +73,40 @@ contract Bitxchange is Ownable {
         rewardPot = IRewardPot(_newRewardPot);
         emit RewardPotUpdated(_newRewardPot);
     }
+
+
+    function getSignerAddress(bytes32 messageHash, bytes memory signature) public pure returns (address) {
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        
+        // Split the signature into its three components
+        assembly {
+            r := mload(add(signature, 32))
+            s := mload(add(signature, 64))
+            v := byte(0, mload(add(signature, 96)))
+
+
+        }
+
+        if (v < 27) {
+                v = v + 27;
+        }
+        
+
+        // EIP-2 still allows signature malleability for ecrecover(). Remove this possibility and make the signature
+        // unique. Appendix F in the Ethereum Yellow paper (https://ethereum.github.io/yellowpaper/paper.pdf), defines
+        // the signed message hash as the message being signed plus a string containing the domain parameters of the
+        // signature process, including the value of the chainId parameter introduced in EIP 155. The following
+        // lines calculate this value.
+        bytes32 messageHashWithPrefix = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash));
+         
+        // Recover the signer's address from the message, signature, and chain ID
+        address signer = ecrecover(messageHashWithPrefix, v, r, s);
+
+        return signer;
+    }
+
 
     function tryGetAmountsOut(uint amountIn, address[] memory path) internal view returns (bool success, uint256 amountOut) {
         try uniswapRouter.getAmountsOut(amountIn, path) returns (uint256[] memory amounts) {
@@ -113,32 +160,45 @@ contract Bitxchange is Ownable {
         return (minAmountOut, estimatedGasCost, canSwap(token, amount, userGasPrice));
     }
 
+    
+    function swapTokensForETH(address token, uint256 amount, uint256 minAmountOut, bytes memory signature,uint256 nonce) external payable {
+        uint256 gasCost = gasleft();
 
-
-    function swapTokensForETH(address token, uint256 amount, uint256 minAmountOut) external {
         // Estimate gas cost and check against minAmountOut
         uint256 estimatedGasCost = estimatedGasForSwap * tx.gasprice;
         require(estimatedGasCost < minAmountOut, "Estimated gas cost exceeds minAmountOut");
-        require(canSwap(token, amount,  tx.gasprice), "Swap Expected to Fail or too Gassy");
+        //require(canSwap(token, amount,  tx.gasprice), "Swap Expected to Fail or too Gassy");
 
+        address recoveredAddress = getSignerAddress(
+                 keccak256(
+					abi.encodePacked(token, amount, minAmountOut, nonce)
+				), 
+            signature
+        );
+
+        require(recoveredAddress != address(0), "Invalid signature");
 
         address[] memory path = new address[](2);
         path[0] = token;
         path[1] = uniswapRouter.WETH();
 
-        // Get the expected output amount based on the input amount and path
-        uint256[] memory amountsOut = uniswapRouter.getAmountsOut(amount, path);
-        uint256 expectedAmountOut = amountsOut[1];
+        (bool success, uint256 expectedAmountOut) = tryGetAmountsOut(amount, path);
+        require(success, "Swap Expected to fail");
+        require(estimatedGasForSwap * tx.gasprice < expectedAmountOut, "Expected gas more than return");
 
         // Estimate gas cost and check against minAmountOut
         require(expectedAmountOut >= minAmountOut, "Expected amount less than minimum required");
 
+ 
         // Perform the swap
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        IERC20(token).transferFrom(recoveredAddress, address(this), amount);
         IERC20(token).approve(address(uniswapRouter), amount);
 
         uint256[] memory amounts = uniswapRouter.swapExactTokensForETH(amount, minAmountOut, path, address(this), block.timestamp);
-        uint256 receivedETH = amounts[1];
+        gasCost = ((gasCost - gasleft()) + 100000) * tx.gasprice;  // extra for two transfers after this
+        payable(msg.sender).transfer(gasCost);
+
+        uint256 receivedETH = amounts[1] - gasCost;
         // Calculate the fee-free zone and the excess amount
         uint256 feeFreeZone = expectedAmountOut > minAmountOut ? expectedAmountOut - minAmountOut : 0;
         uint256 excessAmount = receivedETH > expectedAmountOut ? receivedETH - expectedAmountOut : 0;
@@ -149,16 +209,16 @@ contract Bitxchange is Ownable {
         // Send 90% of the total fee to the reward pot
         rewardPot.addToRewardPot((totalFee * 90) / 100);
 
-        // The remaining 10% stays in the contract
+        // The remaining fee stays in the contract
 
         // Send the remaining ETH back to the original sender
-        payable(msg.sender).transfer(receivedETH - totalFee);
+        payable(recoveredAddress).transfer(receivedETH - totalFee);
 
-        emit SwapSuccessful(msg.sender, amount, receivedETH);
+        emit SwapSuccessful(recoveredAddress, receivedETH);
         
     }
 
-    function swapTokensForETH_UserPaysGas(address token, uint256 amount, uint256 minAmountOut) external {
+    function swapTokensForETH_UserPaysGas(address token, uint256 amount, uint256 minAmountOut) external payable {
         // Perform the swap
         IERC20(token).transferFrom(msg.sender, address(this), amount);
         IERC20(token).approve(address(uniswapRouter), amount);
@@ -183,7 +243,7 @@ contract Bitxchange is Ownable {
         uint256 remainingETH = receivedETH - fee;
         payable(msg.sender).transfer(remainingETH);
 
-        emit SwapSuccessful(msg.sender, amount, receivedETH);
+        emit SwapSuccessful(msg.sender, receivedETH);
     }
 
 }
